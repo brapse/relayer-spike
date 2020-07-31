@@ -64,5 +64,14 @@ Packets
     * Channel consutrction
 
 ## Stage 2: Runtime
-    * produce relayer consutrciton with handler facades for concurrent
-      runtimes
+    * produce relayer consutrciton with handler facades for concurrent runtimes
+
+## Notes Readiing Libra
+* Using channels to communicate between threads makes sense 
+* Handlers should be synchronous interfaces as implemented traits and not raw channels to
+  provide consistent testing surface areas
+* proliferating channels makes reasoning about lifecycle management more
+  complicated than it need be. Tasks should be modeled objects who
+  communicate lifecycle expectations contractually through synchronous
+  methods.
+

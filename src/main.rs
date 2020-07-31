@@ -1,4 +1,10 @@
-use relayer_spike::Chain;
+use relayer_spike::{Chain, Datagram, Header};
+
+/*
+ * TODO:
+ * + Error handling
+ * + Spawn multiple paths in a Route abstraction
+ */
 
 fn main() {
     // Relay from chain a to chain b
@@ -6,14 +12,19 @@ fn main() {
     let mut chain_b = Chain::new();
     let mut subscription =  chain_a.subscribe();
 
-    // XXX: This case be spawned in multiple threads support relaying multiple chains in multiple
-    // directions in the same process space
     for event in subscription.iter() {
-        // What do we do here if this needs to be mutable?
-        let pending_packets = chain_a.pending_datagrams(&chain_b, event);
+        let target_height = 1;
+        chain_b.update_client(&chain_a, target_height);
 
-        // XXX: Validation
+        let header = chain_a.get_header(target_height);
+        
+        let datagrams = chain_a.pending_datagrams(&chain_b, event);
 
-        chain_b.submit(pending_packets); // or this might include updates?
+        verify_proof(&datagrams, &header);
+
+        chain_b.submit(datagrams);
     }
+}
+
+fn verify_proof(_datagrams: &Vec<Datagram>, _header: &Header) {
 }
