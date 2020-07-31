@@ -128,7 +128,8 @@ impl Chain {
             return // {nil, error}
         }
 
-        // This code is bullshit, as 
+        // This code doesn't make any sense unless the dest.get_proven_client_state can return
+        // target_height or the latest. 
         while proven_client_state.header.height < target_height {
             // Installed height is smaller than the target height.
             // Do an update to IBC client for `src` on `dest`.
