@@ -3,6 +3,8 @@ pub type Hash = ();
 pub type ChainID = u64;
 pub type Proof = ();
 
+/// Align with: https://github.com/informalsystems/ibc-rs/blob/76b97a56fa68c972c55760f8cf85556b6799c05a/docs/spec/relayer/Relayer.md
+
 #[derive(std::cmp::PartialEq)]
 pub struct Header {
     height: Height,
@@ -21,8 +23,9 @@ impl Header {
 }
 
 pub struct ClientState {
-    height: Height,
-    signed_header: Header,
+    // height = signed_header.header.height
+    height: Height, // chain_a
+    signed_header: Header, // chain_a
 }
 
 impl ClientState {
@@ -34,11 +37,14 @@ impl ClientState {
     }
 }
 
+// look at destination chain
+// proove that client state is in a foreign chain at a given height
+// This let's me prove that the header can is included in chain_b at proof_height (with proof)
 pub struct ProvenClientState {
     // XXX: Probably have a client ID
-    header: Header ,
-    proof: Proof,
-    app_hash: Hash,
+    header: Header, // height of chain_a
+    proof_height: height, // height of chain_b
+    proof: Proof, // proof that chain_b includes chain_a client
 }
 
 impl ProvenClientState {
@@ -46,11 +52,14 @@ impl ProvenClientState {
         return ProvenClientState {
             header: Header::default(),
             proof: (),
-            app_hash: (),
+            // XXX: TODO
         }
     }
 }
 
+pub enum ChainError {
+    SubmissionError()
+}
 pub struct Chain {
     id: ChainID,
 }
@@ -72,8 +81,6 @@ pub enum Datagram {
     NoOp(),
 }
 
-// TODO: Connection construction
-// TODO: Channel construction
 impl Chain {
    pub  fn new() -> Chain {
         return Chain { id: 0 }
@@ -89,7 +96,6 @@ impl Chain {
 
     // maybe return some kind of error
     pub fn submit(&self, datagrams: Vec<Datagram>) {
-        // XXX: Update client
     }
 
     pub fn pending_datagrams(&self, other: &Chain, event: &Event) -> Vec<Datagram> {
@@ -105,59 +111,59 @@ impl Chain {
         return vec![Header::default()]
     }
 
-    // Update the client of a foreign chain on this chain
-    pub fn update_client(&mut self, dest: &Chain, target_height: Height) {
-        // Check if targetHeight exists already on destination chain.
-        // Query state of IBC client for `src` on chain `dest`.
-        // XXX: Probably don't need to pass self but instead the chain ID
-        // - So here the we need the origin state and proofs to assert it's presence on the
-        // - destination state
-        // So this is actually client state
-        let mut proven_client_state = dest.proven_client_state(self.id, target_height);
+    // XXX: This will always return target_height_a or ClientError
+    pub fn update_client(&mut self, dest: &Chain, target_height_a: Height) -> Result<Height, ClientError> {
+        /*
+         * What we want to do here is update the client for self on dest to target_height_a
+         * where target_height_a is event.height+1
+         *
+         */
+        // what is the schedma of client_state?
+        // ClientState {
+        //  Height: (from chain A)
+        //  SignedHeader: (from chain A)
+        // }
+        // What is the schema of membership_proof
+        // MembershipProof {
+        // Height: (from chain B)
+        // Proof (from chain B)
+        // }
+        let (mut client_state, mut membership_proof) = dest.client_state(self.id, target_height_a);
 
-        // Verify if installed header is equal to the header obtained the from the local client 
-        // at the same height
-        if !(self.get_header(target_height) == proven_client_state.header) {
-            return // ;{nil, error}
+        // This part is super confusing, because it isn't clear what chain the data is pertaining to
+        // Prove that chain_b has the SignedHeader of self hain_a at chain_state.height)
+        let sh = dest.lc.get_header(membership_proof.height + 1);
+        if ! verify_client_state_proof(client_state, membership_proof, sh.app_hash) {
+            // Error: Destination chain provided invalid client_state
+            return Err(Error::InvalidClientState())
         }
-                
-        // Verify the result of the query
-        // - Then we verify destination has a valid next header
-        let signed_header = dest.get_header(proven_client_state.header.height + 1);
-        if !verify_client_state_proof(&proven_client_state, &signed_header.app_hash) {
-            return // {nil, error}
+
+        // verify client_state on self
+        if self.lc.get_header(client_state.height) == client_State.signed_header.header {
+            return Err(Error::InvalidClientState())
         }
 
-        // This code doesn't make any sense unless the dest.get_proven_client_state can return
-        // target_height or the latest. 
-        while proven_client_state.header.height < target_height {
-            // Installed height is smaller than the target height.
-            // Do an update to IBC client for `src` on `dest`.
-            let signed_headers = self.get_minimal_set(proven_client_state.header.height, target_height);
-            // Might fail due to conncurent client updates.
-            dest.submit(vec![create_client_update_datagram(signed_headers)]);
+        // update dest client state up to target_height
+        while client_state.height < target_height {
+            let shared_headers = self.get_minimal_set(client_state.height, target_height);
 
-            // Check if targetHeight exists already on destination chain.
-            // Query state of IBC client for `src` on chain `dest`.
-            // XXX: I think client_consensus_state needs an ID
-            proven_client_state = dest.proven_client_state(self.id, target_height);
-                
-            // Verify if installed header is equal to the header obtained the from the local client 
-            // at the same height
-            // - maybe just compare the hashes here
-            if !(self.get_header(proven_client_state.header.height) == proven_client_state.header) {
-                return // {nil, error}
+            // Send update datagram
+            dest.submit(create_client_update_datagram(shared_headers));
+
+            let (client_state, membership_proof) = dest.client_state(self.id, target_height_a);
+            let sh = dest.get_header(membership_proof.height + 1);
+            if ! verify_client_state_proof(client_state, membership_proof, sh.app_hash) {
+                // Error: Destination chain provided invalid client_state
+                return Err(ClientError::InvalidClientState());
             }
-                        
-            // Verify the result of the query
-            let sh = dest.get_header(proven_client_state.header.height + 1);
-            if ! verify_client_state_proof(&proven_client_state, &sh.app_hash) {
-                return // {nil, error}
+
+            if self.get_header(client_state.height) == client_state.signed_header.header {
+                // Error: Client_state isn't verified by self light client
+                return  Err(ClientError::UnverifiedClientState())
             }
         }
 
-        return // {clientState.Height, nil}
-
+        return Ok(target_height_a);
     }
 }
 
