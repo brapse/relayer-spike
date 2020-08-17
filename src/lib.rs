@@ -69,10 +69,11 @@ pub enum ChainError {
     VerificationError(),
     HeaderMismatch(),
 }
+
 pub struct Chain {
     chain_id: ChainID,
-    full_node: FullNode,
-    light_client: LightClient,
+    pub full_node: FullNode,
+    pub light_client: LightClient,
 }
 
 
