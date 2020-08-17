@@ -27,7 +27,9 @@ impl Header {
     }
 }
 
-pub struct FullNode {
+pub struct FullNode {}
+
+impl FullNode {
     pub fn subscribe(&self) -> Subscription {
         return vec![Event::NoOp()]
     }
@@ -41,19 +43,20 @@ pub struct FullNode {
     pub fn pending_datagrams(&self, other: &Chain, event: &Event) -> Vec<Datagram> {
         return vec![Datagram::NoOp()]
     }
-}
 
-impl FullNode {
-    fn consensus_state(chain_id: ChainID, target_height: Height) -> (ConsensusState, MembershipProof) {
+    pub fn consensus_state(&self, chain_id: ChainID, target_height: Height) -> (ConsensusState, MembershipProof) {
         // In practice this will query the client_state, get the height and perform a second query
         // for the consensus_state. it's possible that the client.state.height < target_height in which case this function will return the highest possible height
 
-        return (ConsensusState::default(), MembershipProof{height})
+        return (ConsensusState::default(), MembershipProof{height: target_height})
     }
 }
 
 pub struct LightClient {
-    pub fn get_header(&self, height: Height) -> Header {
+}
+
+impl LightClient {
+    pub fn get_header(&self, height: Height) -> SignedHeader {
         return SignedHeader::default()
     }
 
@@ -73,12 +76,20 @@ pub struct Chain {
 }
 
 
-struct ConsesusState {
+pub struct ConsensusState {
     height: Height, // Is this superflous?
     signed_header: SignedHeader,
 }
 
-struct SignedHeader {
+impl ConsensusState {
+    fn default() -> ConsensusState {
+        return ConsensusState {
+            height: 1,
+            signed_header: SignedHeader::default(),
+        }
+    }
+}
+pub struct SignedHeader {
     header: Header,
     commit: (),
 }
@@ -100,51 +111,53 @@ pub enum Datagram {
     NoOp(),
 }
 
+
 impl Chain {
    pub fn new() -> Chain {
         return Chain { 
-            id: 0,
+            chain_id: 0,
             full_node: FullNode {},
-            light_client: LightCLient {},
+            light_client: LightClient {},
         }
     }
 
     // XXX: This will always return target_height_a or ClientError
-    pub fn update_client(&mut src, dest: &Chain, src_target_height: Height) -> Result<Height, ClientError> {
-        let (mut src_consensus_state, mut dest_membership_proof) = dest.full_node.consensus_state(src.id, src_target_height);
+    pub fn update_client(&mut self, dest: &Chain, self_target_height: Height) -> Result<Height, ChainError> {
+        let (mut self_consensus_state, mut dest_membership_proof) = dest.full_node.consensus_state(self.chain_id, self_target_height);
 
         let dest_sh = dest.light_client.get_header(dest_membership_proof.height + 1);
         // type verifyMembership = (root: CommitmentRoot, proof: CommitmentProof, path: CommitmentPath, value: Value) => boolean (ICS-023)
-        if ! verify_consensus_state_inclusion(src_consensus_state, dest_membership_proof, dest_sh.app_hash) {
+        if ! verify_consensus_state_inclusion(&self_consensus_state, &dest_membership_proof, &(dest_sh.header.app_hash)) {
             // Error: Destination chain provided invalid consensus_state
-            return Err(ChainError::VerificationFailed())
+            return Err(ChainError::VerificationError())
         }
 
         // verify client_state on self
-        if src.lc.get_header(src_consensus_state.height) == src_consensus_state.signed_header.header {
+        if self.light_client.get_header(self_consensus_state.height).header == self_consensus_state.signed_header.header {
             return Err(ChainError::HeaderMismatch())
         }
 
-        // XXX: Is there a chance of multiple iterations of this loop?
-        while src_consensus_state.height < src_target_height {
-            let src_signed_headers = src.light_client.get_minimal_set(src_consensus_state.height, src_target_height);
+        while self_consensus_state.height < self_target_height {
+            let self_signed_headers = self.light_client.get_minimal_set(self_consensus_state.height, self_target_height);
 
-            dest.full_node.submit(create_client_update_datagram(src_signed_headers));
+            // This might fail semantically due to competing relayers
+            // Even if this fails, we need to continue
+            dest.full_node.submit(vec![create_client_update_datagram(self_signed_headers)]);
 
-            let (src_consensus_state, dest_membership_proof) = dest.full_node.consensus_state(src.id, src_target_height);
+            let (self_consensus_state, dest_membership_proof) = dest.full_node.consensus_state(self.chain_id, self_target_height);
             let dest_sh = dest.light_client.get_header(dest_membership_proof.height + 1);
-            if ! verify_consensus_state_inclusion(src_consensus_state, dest_membership_proof, dest_sh.app_hash) {
+            if ! verify_consensus_state_inclusion(&self_consensus_state, &dest_membership_proof, &(dest_sh.header.app_hash)) {
                 // Error: Destination chain provided invalid client_state
                 return Err(ChainError::VerificationError())
             }
 
-            if src.light_client.get_header(src_consensus_state.height) == consensus_state.signed_header.header {
+            if self.light_client.get_header(self_consensus_state.height).header == self_consensus_state.signed_header.header {
                 // Error: consesus_state isn't verified by self light client
                 return  Err(ChainError::HeaderMismatch())
             }
         }
 
-        return Ok(target_height_a)
+        return Ok(self_target_height)
     }
 }
 
