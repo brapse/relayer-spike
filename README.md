@@ -20,11 +20,10 @@ Chain
         * Can produce route events to different subscriptions
     * Have a RemoteClient 
     * can be sent Packets
-    * Have clients?
 
 Subscriptions (event Monitor)
-    * Produce events
-    * Different events can produce different 
+    * Iterable stream of events
+    * Construct datagrams 
 
 Connections
     * ICS3
@@ -49,7 +48,7 @@ Packets
     * With valid full node
     * With invalid full node (verification fails)
 * Connection setup
-    COnnection handshake as the function of two chain states
+    Connection handshake as the function of two chain states
     * With out of date client
     * Channel setup
 * Channel Setup
@@ -61,17 +60,23 @@ Packets
     * Chain, Subscription abstraction
     * Sketch dependency graph
     * Connection construction
-    * Channel consutrction
+    * Channel construction
 
 ## Stage 2: Runtime
-    * produce relayer consutrciton with handler facades for concurrent runtimes
+    * produce relayer construction with handler facades for concurrent runtimes
 
-## Notes Readiing Libra
-* Using channels to communicate between threads makes sense 
-* Handlers should be synchronous interfaces as implemented traits and not raw channels to
-  provide consistent testing surface areas
-* proliferating channels makes reasoning about lifecycle management more
-  complicated than it need be. Tasks should be modeled objects who
-  communicate lifecycle expectations contractually through synchronous
-  methods.
+
+We need to decide:
+* Should Client Update be bundled with packet submission?
+* Q: Are packet submissions synchronous or are they handled by an internal
+  chain runtime?
+* A: Let's just do it synchronously and inefficient for now
+
+* What are the failure cases for Relay
+    * Submission fails
+    * proof verification fails
+    * light client fails
+    * `client_update` fails
+* All these will produce context specific errors that will be mapped to
+  relay errors which can be processed by a relay manager
 
